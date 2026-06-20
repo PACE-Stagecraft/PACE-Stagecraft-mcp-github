@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     GITHUB_APP_ID: str = ""
     GITHUB_APP_PRIVATE_KEY: str = ""
     ALLOWED_ORG: str = ""
-    MCP_HOST: str = "127.0.0.1"
+    MCP_HOST: str = "0.0.0.0"
     MCP_PORT: int = 8010
 
 
@@ -55,16 +55,28 @@ def _mint_installation_token(org: str) -> str:
         return r2.json()["token"]
 
 
+def _resolve_token(org: str, github_token: Optional[str]) -> str:
+    """Return github_token if provided (OAuth path), otherwise mint a GitHub App installation token."""
+    if github_token:
+        return github_token
+    if not settings.GITHUB_APP_ID or not settings.GITHUB_APP_PRIVATE_KEY:
+        raise RuntimeError(
+            "No github_token provided and GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY are not configured. "
+            "Pass a github_token to use OAuth auth, or configure the GitHub App."
+        )
+    return _mint_installation_token(org)
+
+
 def _assert_allowed_org(owner: str) -> None:
     if settings.ALLOWED_ORG and owner != settings.ALLOWED_ORG:
         raise PermissionError(f"Repo owner '{owner}' is not in the allowed org '{settings.ALLOWED_ORG}'")
 
 
 @mcp.tool()
-async def get_workflow_yaml(owner: str, repo: str, path: str, ref: str) -> str:
+async def get_workflow_yaml(owner: str, repo: str, path: str, ref: str, github_token: Optional[str] = None) -> str:
     """Fetch a GitHub Actions workflow YAML file from a repository."""
     _assert_allowed_org(owner)
-    token = _mint_installation_token(owner)
+    token = _resolve_token(owner, github_token)
     async with httpx.AsyncClient() as client:
         r = await client.get(
             f"{_GH_API}/repos/{owner}/{repo}/contents/{path}",
@@ -79,11 +91,11 @@ async def get_workflow_yaml(owner: str, repo: str, path: str, ref: str) -> str:
 
 
 @mcp.tool()
-async def get_run_logs(owner: str, repo: str, run_id: int) -> str:
+async def get_run_logs(owner: str, repo: str, run_id: int, github_token: Optional[str] = None) -> str:
     """Download and return the last 300 lines of logs for a workflow run."""
     _assert_allowed_org(owner)
     import io, zipfile
-    token = _mint_installation_token(owner)
+    token = _resolve_token(owner, github_token)
     async with httpx.AsyncClient(follow_redirects=True) as client:
         r = await client.get(
             f"{_GH_API}/repos/{owner}/{repo}/actions/runs/{run_id}/logs",
@@ -99,12 +111,12 @@ async def get_run_logs(owner: str, repo: str, run_id: int) -> str:
 
 
 @mcp.tool()
-async def create_fix_branch(owner: str, repo: str, base_sha: str, branch_name: str) -> str:
+async def create_fix_branch(owner: str, repo: str, base_sha: str, branch_name: str, github_token: Optional[str] = None) -> str:
     """Create a new fix branch from a given commit SHA. Branch name must start with 'agora/'."""
     _assert_allowed_org(owner)
     if not branch_name.startswith("agora/"):
         raise ValueError("Fix branches must be prefixed 'agora/' — rejecting arbitrary branch creation")
-    token = _mint_installation_token(owner)
+    token = _resolve_token(owner, github_token)
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{_GH_API}/repos/{owner}/{repo}/git/refs",
@@ -124,6 +136,7 @@ async def commit_workflow_fix(
     content: str,
     message: str,
     current_sha: Optional[str] = None,
+    github_token: Optional[str] = None,
 ) -> str:
     """Commit a fixed workflow YAML. Path must be inside .github/workflows/."""
     _assert_allowed_org(owner)
@@ -131,7 +144,7 @@ async def commit_workflow_fix(
         raise ValueError("commit_workflow_fix only writes to .github/workflows/ — rejecting arbitrary path")
     if not branch.startswith("agora/"):
         raise ValueError("Commits must target an 'agora/' branch")
-    token = _mint_installation_token(owner)
+    token = _resolve_token(owner, github_token)
     encoded = base64.b64encode(content.encode()).decode()
     payload = {"message": message, "content": encoded, "branch": branch}
     if current_sha:
@@ -154,12 +167,13 @@ async def create_pull_request(
     base: str,
     title: str,
     body: str,
+    github_token: Optional[str] = None,
 ) -> str:
     """Open a pull request. Head branch must start with 'agora/'."""
     _assert_allowed_org(owner)
     if not head.startswith("agora/"):
         raise ValueError("PR head branch must start with 'agora/'")
-    token = _mint_installation_token(owner)
+    token = _resolve_token(owner, github_token)
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{_GH_API}/repos/{owner}/{repo}/pulls",
@@ -172,4 +186,4 @@ async def create_pull_request(
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    mcp.run(transport="streamable-http", host=settings.MCP_HOST, port=settings.MCP_PORT)
