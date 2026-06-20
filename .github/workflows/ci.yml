@@ -48,7 +48,7 @@ jobs:
     with:
       service_name: agora-mcp-github
       image_tag: ${{ needs.push.outputs.tag }}
-      target_branch: main
+      target_branch: develop
     secrets: inherit
 
   notify:
