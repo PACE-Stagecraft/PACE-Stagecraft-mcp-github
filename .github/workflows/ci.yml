@@ -13,14 +13,14 @@ permissions:
 jobs:
   gitleaks:
     name: Secret Scan
-    uses: Stagecraft-Ops/stagecraft-workflows/.github/workflows/gitleaks.yml@main
+    uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/gitleaks.yml@main
     with:
       service_name: stagecraft-mcp-github
 
   sonar:
     name: SonarCloud Scan
     needs: gitleaks
-    uses: Stagecraft-Ops/stagecraft-workflows/.github/workflows/sonar-scan.yml@main
+    uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/sonar-scan.yml@main
     with:
       service_name: stagecraft-mcp-github
       working-directory: .
@@ -30,7 +30,7 @@ jobs:
   build:
     name: Build & Scan
     needs: [gitleaks, sonar]
-    uses: Stagecraft-Ops/stagecraft-workflows/.github/workflows/build-and-scan.yml@main
+    uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/build-and-scan.yml@main
     with:
       service_name: stagecraft-mcp-github
       dockerfile_path: Dockerfile
@@ -42,7 +42,7 @@ jobs:
     name: Push to ECR
     needs: build
     if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.event_name == 'push'
-    uses: Stagecraft-Ops/stagecraft-workflows/.github/workflows/push-to-ecr.yml@main
+    uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/push-to-ecr.yml@main
     with:
       service_name: stagecraft-mcp-github
       git_tag: ${{ needs.build.outputs.tag }}
@@ -54,7 +54,7 @@ jobs:
     name: Update Helm Tag
     needs: push
     if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.event_name == 'push'
-    uses: Stagecraft-Ops/stagecraft-workflows/.github/workflows/helm-update.yml@main
+    uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/helm-update.yml@main
     with:
       service_name: stagecraft-mcp-github
       image_tag: ${{ needs.push.outputs.tag }}
@@ -64,7 +64,7 @@ jobs:
     name: Notify on Failure
     needs: [sonar, build, push, helm-update]
     if: always() && contains(needs.*.result, 'failure')
-    uses: Stagecraft-Ops/stagecraft-workflows/.github/workflows/notify.yml@main
+    uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/notify.yml@main
     with:
       service_name: stagecraft-mcp-github
       build_result: ${{ needs.build.result }}
